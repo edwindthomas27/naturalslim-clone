@@ -61,9 +61,24 @@ def _product_image_raw(product):
     return raw
 
 
+def _is_image_magic_bytes(data):
+    """True si data empieza por cabecera de imagen conocida (JPEG, PNG, GIF)."""
+    if not data or len(data) < 2:
+        return False
+    if data[:2] == b"\xff\xd8":
+        return True  # JPEG
+    if len(data) >= 8 and data[:8] == b"\x89PNG\r\n\x1a\n":
+        return True  # PNG
+    if len(data) >= 6 and data[:6] in (b"GIF87a", b"GIF89a"):
+        return True  # GIF
+    return False
+
+
 def _raw_to_image_bytes(raw):
     """
     Convierte el valor de image_1920 de Odoo (bytes, str base64, bytearray, etc.) a bytes.
+    En algunos entornos Odoo devuelve bytes que son base64 en ASCII (ej. b'/9j/4AAQ...');
+    en ese caso hay que decodificar una vez para obtener la imagen real.
     Devuelve (image_bytes, content_type) o (None, None) si falla.
     """
     if not raw:
@@ -71,15 +86,33 @@ def _raw_to_image_bytes(raw):
     try:
         if isinstance(raw, bytes):
             image_bytes = raw
+            # Si son bytes pero no son cabecera de imagen, pueden ser base64 en ASCII (Odoo)
+            if not _is_image_magic_bytes(image_bytes):
+                try:
+                    b64_str = image_bytes.decode("utf-8").strip().replace("\r", "").replace("\n", "")
+                    if b64_str and len(b64_str) % 4 in (0, 2):  # longitud típica de base64
+                        decoded = base64.b64decode(b64_str)
+                        if decoded and _is_image_magic_bytes(decoded):
+                            image_bytes = decoded
+                except Exception:
+                    pass
         elif isinstance(raw, bytearray):
             image_bytes = bytes(raw)
+            if not _is_image_magic_bytes(image_bytes):
+                try:
+                    b64_str = image_bytes.decode("utf-8").strip().replace("\r", "").replace("\n", "")
+                    if b64_str and len(b64_str) % 4 in (0, 2):
+                        decoded = base64.b64decode(b64_str)
+                        if decoded and _is_image_magic_bytes(decoded):
+                            image_bytes = decoded
+                except Exception:
+                    pass
         elif isinstance(raw, (memoryview,)):
             image_bytes = bytes(raw)
         elif isinstance(raw, str):
             b64 = raw.strip().replace("\r", "").replace("\n", "")
             image_bytes = base64.b64decode(b64)
         else:
-            # Odoo puede devolver otro tipo; intentar como string (base64) o como bytes
             try:
                 s = str(raw).strip().replace("\r", "").replace("\n", "")
                 image_bytes = base64.b64decode(s)
@@ -121,8 +154,8 @@ class NaturalSlimAPI(http.Controller):
 
             result = []
             for product in products:
-                # Imagen por URL (producto o plantilla)
-                image_url = "/api/product/%s/image" % product.id if _product_has_image(product) else None
+                # Imagen: se sirve por URL en GET /api/product/<id>/image (sin base64 en JSON)
+                image_url = f"/api/product/{product.id}/image" if _product_has_image(product) else None
 
                 category_name = ""
                 if product.categ_id:
@@ -183,7 +216,10 @@ class NaturalSlimAPI(http.Controller):
             if not image_bytes or not content_type:
                 return Response(status=404, headers=cors_headers())
 
-            headers = [("Content-Type", content_type)]
+            headers = [
+                ("Content-Type", content_type),
+                ("Cache-Control", "public, max-age=86400"),  # 1 día
+            ]
             _apply_cors_headers(headers, request)
             return Response(image_bytes, status=200, headers=headers)
         except Exception:

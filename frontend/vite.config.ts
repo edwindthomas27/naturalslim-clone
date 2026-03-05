@@ -10,8 +10,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5180,
+    port: 5173,
     host: true,
+    // En Docker (y a veces en Windows) los cambios del host no disparan el watcher.
+    // Con polling, Vite revisa los archivos cada X ms y aplica HMR.
+    watch: {
+      usePolling: true,
+      interval: 500,
+    },
     proxy: {
       // En desarrollo, las peticiones a /api se reenvían a Odoo.
       // En Docker usar VITE_PROXY_TARGET=http://odoo:8069 (nombre del servicio).

@@ -6,7 +6,7 @@ export interface Product {
   id: number
   name: string
   list_price: number
-  /** URL de la imagen (ej. /api/product/17/image). Null si el producto no tiene imagen. */
+  /** URL de la imagen en el backend (ej. /api/product/1/image). Null si no tiene imagen. */
   image_url: string | null
   description_sale: string
   category: string
