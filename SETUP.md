@@ -144,7 +144,7 @@ Si prefieres no usar el contenedor del frontend:
 
 | Problema | Qué hacer |
 |----------|-----------|
-| "Failed to fetch" en el frontend | Odoo no está en marcha, el módulo no está instalado o el puerto 8069 está bloqueado. Comprobar `docker compose ps`, abrir http://localhost:8069 y http://localhost:8069/api/products. |
+| "Failed to fetch" en el frontend | Si el **frontend corre en Docker**: el proxy de Vite debe apuntar al servicio `odoo` (no a localhost). En `docker-compose.yml` el servicio `frontend` debe tener `VITE_PROXY_TARGET=http://odoo:8069`. Luego reiniciar: `docker compose restart frontend`. Si el frontend corre en local (`npm run dev`): comprobar que Odoo esté en marcha y que el módulo esté instalado. Probar http://localhost:8069/api/products en el navegador. |
 | "cannot find the file specified" / "error during connect" al hacer `docker compose up` | Docker Desktop no está abierto o el motor Docker no está corriendo. Abrir Docker Desktop (Windows/Mac) y esperar a que esté "Running". |
 | No aparece el módulo "NaturalSlim API" en Apps | Reiniciar Odoo: `docker compose restart odoo`. En Odoo: Apps → menú → Update Apps List. Comprobar que existe la carpeta `addons/naturalslim_api/` con `__manifest__.py`. |
 | El frontend no arranca en el contenedor | Revisar logs: `docker compose logs frontend`. Si falla `npm install`, puede ser red o permisos; en ese caso usar la opción de frontend en local (sección 6). |

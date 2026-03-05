@@ -13,9 +13,11 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
-      // En desarrollo, las peticiones a /api se reenvían a Odoo (evita CORS y errores de conexión)
+      // En desarrollo, las peticiones a /api se reenvían a Odoo.
+      // En Docker usar VITE_PROXY_TARGET=http://odoo:8069 (nombre del servicio).
+      // En local, por defecto http://localhost:8069
       '/api': {
-        target: 'http://localhost:8069',
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8069',
         changeOrigin: true,
       },
     },
