@@ -6,21 +6,96 @@ from odoo import http
 from odoo.http import request, Response
 
 
-# Origen permitido para CORS (frontend Vue en desarrollo)
-CORS_ORIGIN = "http://localhost:5173"
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": CORS_ORIGIN,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Max-Age": "86400",
-}
+# Orígenes permitidos para CORS (frontend Vue en desarrollo, cualquier puerto localhost)
+CORS_ORIGINS = (
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://localhost:5180",
+    "http://localhost:5182",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5180",
+    "http://127.0.0.1:5182",
+)
 
 
-def _apply_cors_headers(response_headers):
+def _get_cors_headers(origin=None):
+    """Cabeceras CORS; si origin es localhost o 127.0.0.1, lo permitimos (cualquier puerto)."""
+    allow_origin = "http://localhost:5173"
+    if origin and ("localhost" in origin or "127.0.0.1" in origin):
+        allow_origin = origin
+    elif origin and origin in CORS_ORIGINS:
+        allow_origin = origin
+    return {
+        "Access-Control-Allow-Origin": allow_origin,
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Max-Age": "86400",
+    }
+
+
+def _apply_cors_headers(response_headers, request=None):
     """Añade cabeceras CORS a una lista de cabeceras (tuplas)."""
-    for key, value in CORS_HEADERS.items():
+    origin = None
+    if request and request.httprequest:
+        origin = request.httprequest.headers.get("Origin")
+    for key, value in _get_cors_headers(origin).items():
         response_headers.append((key, value))
     return response_headers
+
+
+def _product_has_image(product):
+    """True si el producto o su plantilla tiene imagen."""
+    if product.image_1920:
+        return True
+    if product.product_tmpl_id and product.product_tmpl_id.image_1920:
+        return True
+    return False
+
+
+def _product_image_raw(product):
+    """Obtiene los bytes de la imagen (producto o plantilla). None si no hay."""
+    raw = product.image_1920
+    if not raw and product.product_tmpl_id:
+        raw = product.product_tmpl_id.image_1920
+    return raw
+
+
+def _raw_to_image_bytes(raw):
+    """
+    Convierte el valor de image_1920 de Odoo (bytes, str base64, bytearray, etc.) a bytes.
+    Devuelve (image_bytes, content_type) o (None, None) si falla.
+    """
+    if not raw:
+        return None, None
+    try:
+        if isinstance(raw, bytes):
+            image_bytes = raw
+        elif isinstance(raw, bytearray):
+            image_bytes = bytes(raw)
+        elif isinstance(raw, (memoryview,)):
+            image_bytes = bytes(raw)
+        elif isinstance(raw, str):
+            b64 = raw.strip().replace("\r", "").replace("\n", "")
+            image_bytes = base64.b64decode(b64)
+        else:
+            # Odoo puede devolver otro tipo; intentar como string (base64) o como bytes
+            try:
+                s = str(raw).strip().replace("\r", "").replace("\n", "")
+                image_bytes = base64.b64decode(s)
+            except Exception:
+                image_bytes = bytes(raw)
+        if not image_bytes:
+            return None, None
+        if len(image_bytes) >= 8 and image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            return image_bytes, "image/png"
+        if len(image_bytes) >= 2 and image_bytes[:2] == b"\xff\xd8":
+            return image_bytes, "image/jpeg"
+        if len(image_bytes) >= 6 and image_bytes[:6] in (b"GIF87a", b"GIF89a"):
+            return image_bytes, "image/gif"
+        return image_bytes, "image/jpeg"
+    except Exception:
+        return None, None
 
 
 class NaturalSlimAPI(http.Controller):
@@ -35,45 +110,84 @@ class NaturalSlimAPI(http.Controller):
         if request.httprequest.method == "OPTIONS":
             return Response(
                 status=204,
-                headers=_apply_cors_headers([]),
+                headers=_apply_cors_headers([], request),
             )
 
-        ProductProduct = request.env["product.product"].sudo()
-        products = ProductProduct.search([
-            ("sale_ok", "=", True),
-        ], order="name asc")
+        try:
+            ProductProduct = request.env["product.product"].sudo()
+            products = ProductProduct.search([
+                ("sale_ok", "=", True),
+            ], order="name asc")
 
-        result = []
-        for product in products:
-            # Imagen en base64 para evitar CORS con otro dominio; si no hay imagen, null
-            image_data = None
-            if product.image_1920:
-                image_data = base64.b64encode(product.image_1920).decode("utf-8")
+            result = []
+            for product in products:
+                # Imagen por URL (producto o plantilla)
+                image_url = "/api/product/%s/image" % product.id if _product_has_image(product) else None
 
-            # Categoría (primera categoría del producto)
-            category_name = ""
-            if product.categ_id:
-                category_name = product.categ_id.name or ""
+                category_name = ""
+                if product.categ_id:
+                    category_name = product.categ_id.name or ""
 
-            # Stock disponible (si el módulo stock está instalado)
-            free_qty = 0.0
-            if "qty_available" in product._fields:
-                free_qty = product.qty_available
+                free_qty = 0.0
+                if "qty_available" in product._fields:
+                    free_qty = product.qty_available
 
-            result.append({
-                "id": product.id,
-                "name": product.name or "",
-                "list_price": product.list_price,
-                "image_1920": image_data,
-                "description_sale": (product.description_sale or "").strip() or (product.description or "").strip() or "",
-                "category": category_name,
-                "stock": free_qty,
+                result.append({
+                    "id": product.id,
+                    "name": product.name or "",
+                    "list_price": product.list_price,
+                    "image_url": image_url,
+                    "description_sale": (product.description_sale or "").strip() or (product.description or "").strip() or "",
+                    "category": category_name,
+                    "stock": free_qty,
+                })
+
+            body = json.dumps({"products": result})
+            headers = [("Content-Type", "application/json")]
+            _apply_cors_headers(headers, request)
+            return Response(body, status=200, headers=headers)
+        except Exception as e:
+            body = json.dumps({
+                "products": [],
+                "error": str(e),
             })
+            headers = [("Content-Type", "application/json")]
+            _apply_cors_headers(headers, request)
+            return Response(body, status=200, headers=headers)
 
-        body = json.dumps({"products": result})
-        headers = [("Content-Type", "application/json")]
-        _apply_cors_headers(headers)
-        return Response(body, status=200, headers=headers)
+    @http.route("/api/product/<int:product_id>/image", type="http", auth="public", methods=["GET", "OPTIONS"], csrf=False)
+    def api_product_image(self, product_id, **kwargs):
+        """
+        GET /api/product/<id>/image
+        Devuelve la imagen del producto como binario. Usa imagen de la plantilla si la variante no tiene.
+        """
+        def cors_headers():
+            h = []
+            _apply_cors_headers(h, request)
+            return h
+
+        if request.httprequest.method == "OPTIONS":
+            return Response(status=204, headers=cors_headers())
+
+        try:
+            ProductProduct = request.env["product.product"].sudo()
+            product = ProductProduct.browse(product_id)
+            if not product.exists():
+                return Response(status=404, headers=cors_headers())
+
+            raw = _product_image_raw(product)
+            if not raw:
+                return Response(status=404, headers=cors_headers())
+
+            image_bytes, content_type = _raw_to_image_bytes(raw)
+            if not image_bytes or not content_type:
+                return Response(status=404, headers=cors_headers())
+
+            headers = [("Content-Type", content_type)]
+            _apply_cors_headers(headers, request)
+            return Response(image_bytes, status=200, headers=headers)
+        except Exception:
+            return Response(status=500, headers=cors_headers())
 
     @http.route("/api/cart/sync", type="http", auth="public", methods=["POST", "OPTIONS"], csrf=False)
     def api_cart_sync(self, **kwargs):
@@ -83,14 +197,14 @@ class NaturalSlimAPI(http.Controller):
         Body esperado: { "lines": [ { "product_id": int, "quantity": float, "price_unit": float }, ... ], "partner_email": str (opcional), "partner_name": str (opcional) }
         """
         if request.httprequest.method == "OPTIONS":
-            return Response(status=204, headers=_apply_cors_headers([]))
+            return Response(status=204, headers=_apply_cors_headers([], request))
 
         try:
             payload = json.loads(request.httprequest.get_data(as_text=True) or "{}")
         except json.JSONDecodeError:
             body = json.dumps({"success": False, "message": "JSON inválido.", "order_id": None})
             headers = [("Content-Type", "application/json")]
-            _apply_cors_headers(headers)
+            _apply_cors_headers(headers, request)
             return Response(body, status=400, headers=headers)
 
         lines = payload.get("lines") or []
@@ -100,7 +214,7 @@ class NaturalSlimAPI(http.Controller):
         if not lines:
             body = json.dumps({"success": False, "message": "El carrito está vacío.", "order_id": None})
             headers = [("Content-Type", "application/json")]
-            _apply_cors_headers(headers)
+            _apply_cors_headers(headers, request)
             return Response(body, status=400, headers=headers)
 
         SaleOrder = request.env["sale.order"].sudo()
@@ -133,7 +247,7 @@ class NaturalSlimAPI(http.Controller):
         if not order_lines:
             body = json.dumps({"success": False, "message": "No hay líneas válidas en el carrito.", "order_id": None})
             headers = [("Content-Type", "application/json")]
-            _apply_cors_headers(headers)
+            _apply_cors_headers(headers, request)
             return Response(body, status=400, headers=headers)
 
         order_vals = {
@@ -151,5 +265,5 @@ class NaturalSlimAPI(http.Controller):
         }
         body = json.dumps(result)
         headers = [("Content-Type", "application/json")]
-        _apply_cors_headers(headers)
+        _apply_cors_headers(headers, request)
         return Response(body, status=200, headers=headers)

@@ -68,7 +68,7 @@ function remove(line: CartLine) {
             <span class="text-gray-500 text-sm ml-2">x {{ line.quantity }}</span>
           </div>
           <div class="flex items-center gap-4">
-            <span class="font-semibold text-accent-dark">{{ (line.quantity * line.price_unit).toFixed(2) }} USD</span>
+            <span class="font-semibold text-accent-dark">$ {{ (line.quantity * line.price_unit).toFixed(2) }} MXN</span>
             <button
               type="button"
               class="text-red-600 hover:text-red-700 text-sm"
@@ -81,7 +81,7 @@ function remove(line: CartLine) {
       </div>
 
       <div class="max-w-md space-y-4 p-6 bg-surface-white rounded-xl border border-surface-border">
-        <p class="text-lg font-bold">Total: {{ total.toFixed(2) }} USD</p>
+        <p class="text-lg font-bold">Total: $ {{ total.toFixed(2) }} MXN</p>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Nombre (opcional)</label>
           <input v-model="name" type="text" placeholder="Cliente Web" class="w-full px-4 py-2 rounded-lg border border-surface-border" />

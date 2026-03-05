@@ -1,17 +1,31 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { Product } from '@/types'
 import { useCartStore } from '@/stores/cartStore'
+import { getBaseUrl } from '@/api/odoo'
 
 const props = defineProps<{
   product: Product
 }>()
 
 const cartStore = useCartStore()
+const imageError = ref(false)
 
 const imageSrc = computed(() => {
-  if (!props.product.image_1920) return null
-  return `data:image/png;base64,${props.product.image_1920}`
+  if (!props.product.image_url || imageError.value) return null
+  return getBaseUrl() + props.product.image_url
+})
+
+function onImageError() {
+  if (import.meta.env.DEV) {
+    const url = getBaseUrl() + (props.product.image_url || '')
+    console.warn('[ProductCard] Imagen no cargó:', props.product.id, props.product.name, { url })
+  }
+  imageError.value = true
+}
+
+watch(() => props.product.id, () => {
+  imageError.value = false
 })
 
 function addToCart() {
@@ -29,6 +43,8 @@ function addToCart() {
         :src="imageSrc"
         :alt="product.name"
         class="w-full h-full object-cover"
+        loading="lazy"
+        @error="onImageError"
       />
       <div
         v-else
@@ -69,7 +85,7 @@ function addToCart() {
       </p>
       <div class="flex items-center justify-between mt-auto gap-2">
         <span class="text-lg font-bold text-accent-dark">
-          {{ product.list_price.toFixed(2) }} <span class="text-sm font-normal">USD</span>
+          $ {{ product.list_price.toFixed(2) }} <span class="text-sm font-normal">MXN</span>
         </span>
         <button
           type="button"

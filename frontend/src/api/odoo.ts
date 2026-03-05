@@ -1,13 +1,14 @@
 import type { ProductsApiResponse, CartSyncPayload, CartSyncResponse } from '@/types'
 
-const getBaseUrl = (): string => {
-  // En desarrollo usamos el proxy de Vite (/api → Odoo), así evitamos CORS
+/** Base URL de la API Odoo. En dev es '' para usar el proxy de Vite. */
+export function getBaseUrl(): string {
   if (import.meta.env.DEV) return ''
   return import.meta.env.VITE_ODOO_API_URL ?? 'http://localhost:8069'
 }
 
 export async function fetchProducts(): Promise<ProductsApiResponse> {
-  const res = await fetch(`${getBaseUrl()}/api/products`, {
+  const url = `${getBaseUrl()}/api/products`
+  const res = await fetch(url, {
     method: 'GET',
     headers: { Accept: 'application/json' },
   })

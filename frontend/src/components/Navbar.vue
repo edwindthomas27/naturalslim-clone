@@ -22,7 +22,7 @@ function onSearch() {
     <div class="container mx-auto px-4">
       <div class="flex items-center justify-between h-16 gap-4">
         <router-link to="/" class="flex items-center gap-2 shrink-0">
-          <span class="text-xl font-semibold text-accent-dark">NaturalSlim</span>
+          <img src="/logo-nS2.svg" alt="NaturalSlim" class="h-11 w-auto" />
         </router-link>
 
         <div class="flex-1 max-w-md hidden sm:block">
